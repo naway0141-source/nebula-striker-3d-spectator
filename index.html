@@ -1,0 +1,1629 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>XEVIOUS 3D SPECTATOR - 3D観戦型シューティング</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Three.js (r128) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <!-- Tone.js (レトロFMシンセ風レーザー・爆撃・アラート音) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&family=Orbitron:wght@500;700;900&display=swap" rel="stylesheet" />
+  <style>
+    * {
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #040812;
+      font-family: 'Noto Sans JP', sans-serif;
+    }
+    .font-arcade {
+      font-family: 'Orbitron', monospace;
+    }
+    #three-container {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+      touch-action: none;
+    }
+    #three-container canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+    #hud-canvas {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 4;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <!-- 3D戦場キャンバス -->
+  <div id="three-container"></div>
+
+  <!-- 2D照準＆レーダーHUDオーバーレイ -->
+  <canvas id="hud-canvas"></canvas>
+
+  <!-- 上部観戦ステータス＆スコアバー -->
+  <div class="fixed top-3 left-3 right-3 z-20 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
+    <!-- 左：タイトル＆AIパイロット状態 -->
+    <div class="flex items-center gap-2.5 pointer-events-auto bg-slate-950/80 border border-emerald-400/40 rounded-2xl px-3.5 py-2 backdrop-blur-md shadow-xl">
+      <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping"></span>
+      <div>
+        <div class="font-arcade text-xs sm:text-sm font-black tracking-widest text-emerald-300">
+          XEVIOUS <span class="text-amber-300">3D</span> SPECTATOR
+        </div>
+        <div id="ai-status-text" class="text-[11px] text-slate-300">
+          AI AUTOPILOT：対空・対地 索敵中
+        </div>
+      </div>
+    </div>
+
+    <!-- 中央：スコア＆エリア表示 -->
+    <div class="flex items-center gap-4 pointer-events-auto bg-slate-950/80 border border-cyan-400/40 rounded-2xl px-4 py-1.5 backdrop-blur-md shadow-xl">
+      <div class="text-center">
+        <div class="font-arcade text-[10px] text-cyan-400">SCORE</div>
+        <div id="hud-score" class="font-arcade text-sm sm:text-base font-bold text-white">000000</div>
+      </div>
+      <div class="h-6 w-px bg-white/15"></div>
+      <div class="text-center">
+        <div class="font-arcade text-[10px] text-amber-400">AREA</div>
+        <div id="hud-area" class="font-arcade text-sm sm:text-base font-bold text-amber-300">01 / FOREST</div>
+      </div>
+      <div class="h-6 w-px bg-white/15"></div>
+      <div class="text-center">
+        <div class="font-arcade text-[10px] text-rose-400">DESTROYED</div>
+        <div id="hud-kills" class="font-arcade text-sm sm:text-base font-bold text-rose-300">0</div>
+      </div>
+    </div>
+
+    <!-- 右：環境設定（時間帯・速度・サウンド） -->
+    <div class="flex items-center gap-1.5 pointer-events-auto bg-slate-950/80 border border-white/15 rounded-2xl px-2.5 py-1.5 backdrop-blur-md shadow-xl">
+      <button id="btn-time" type="button" class="font-arcade px-2.5 py-1.5 rounded-xl text-[11px] font-bold text-amber-300 bg-amber-500/15 border border-amber-400/40 hover:bg-amber-500/25 transition cursor-pointer">
+        DAYLIGHT
+      </button>
+      <button id="btn-speed" type="button" class="font-arcade px-2.5 py-1.5 rounded-xl text-[11px] font-bold text-sky-300 bg-sky-500/15 border border-sky-400/40 hover:bg-sky-500/25 transition cursor-pointer">
+        1.0x
+      </button>
+      <button id="btn-sound" type="button" class="font-arcade px-2.5 py-1.5 rounded-xl text-[11px] font-bold text-slate-300 bg-white/5 border border-white/15 hover:bg-white/15 transition cursor-pointer">
+        SOUND: OFF
+      </button>
+    </div>
+  </div>
+
+  <!-- 下部：観戦カメラアングル切替＆支援アクションバー -->
+  <div class="fixed bottom-3 left-3 right-3 z-20 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
+    <!-- 左：4種類の観戦カメラ切替 -->
+    <div class="flex flex-wrap items-center gap-1.5 pointer-events-auto bg-slate-950/85 border border-cyan-400/40 rounded-2xl p-1.5 backdrop-blur-md shadow-2xl">
+      <button type="button" data-cam="top" class="cam-btn px-3 py-1.5 rounded-xl text-xs font-bold bg-cyan-500 text-slate-950 shadow transition cursor-pointer">
+        俯瞰カメラ
+      </button>
+      <button type="button" data-cam="chase" class="cam-btn px-3 py-1.5 rounded-xl text-xs font-bold text-slate-300 hover:text-white hover:bg-white/10 transition cursor-pointer">
+        後方チェイス
+      </button>
+      <button type="button" data-cam="low" class="cam-btn px-3 py-1.5 rounded-xl text-xs font-bold text-slate-300 hover:text-white hover:bg-white/10 transition cursor-pointer">
+        低空迫力
+      </button>
+      <button type="button" data-cam="cinema" class="cam-btn px-3 py-1.5 rounded-xl text-xs font-bold text-slate-300 hover:text-white hover:bg-white/10 transition cursor-pointer">
+        シネマ周回
+      </button>
+    </div>
+
+    <!-- 右：ゆるい観戦介入ボタン（爆撃支援・要塞召喚） -->
+    <div class="flex items-center gap-2 pointer-events-auto bg-slate-950/85 border border-amber-400/40 rounded-2xl p-1.5 backdrop-blur-md shadow-2xl">
+      <span class="hidden sm:inline text-[11px] text-slate-400 px-2">画面タップでピンポイント爆撃</span>
+      <button id="btn-airstrike" type="button" class="px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-bold text-xs shadow-lg transition active:scale-95 cursor-pointer">
+        一斉支援爆撃
+      </button>
+      <button id="btn-spawn-fortress" type="button" class="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow-lg transition active:scale-95 cursor-pointer">
+        浮遊要塞出現
+      </button>
+    </div>
+  </div>
+
+  <script>
+    /**
+     * XEVIOUS 3D SPECTATOR
+     * ゼビウス風3D世界をAIパイロットが自動攻略し、カメラアングルを切り替えて眺める観戦型シューティング
+     */
+
+    // =========================================================================
+    // 1. 観戦シミュレーション状態
+    // =========================================================================
+    const sim = {
+      score: 0,
+      kills: 0,
+      area: 1,
+      scrollZ: 0,
+      forwardSpeed: 46,        // m/s
+      timeScale: 1.0,
+      camMode: 'top',          // 'top' | 'chase' | 'low' | 'cinema'
+      timeThemeIndex: 0,       // 0: 昼, 1: 夕焼け, 2: 夜
+      soundOn: false,
+      cinemaAngle: 0,
+      screenShake: 0,
+      aiMessage: 'AI AUTOPILOT：地上施設と敵編隊を自動ロックオン中'
+    };
+
+    const TIME_THEMES = [
+      {
+        name: 'DAYLIGHT',
+        sky: 0x4ca6e8,
+        fog: 0x86c5f4,
+        sunColor: 0xfff8e6,
+        sunInt: 1.35,
+        hemiSky: 0xa5d8ff,
+        hemiGround: 0x2d4a22,
+        hemiInt: 0.78
+      },
+      {
+        name: 'SUNSET',
+        sky: 0xd95338,
+        fog: 0xf2845c,
+        sunColor: 0xff9e44,
+        sunInt: 1.15,
+        hemiSky: 0xff9966,
+        hemiGround: 0x2b192e,
+        hemiInt: 0.65
+      },
+      {
+        name: 'MIDNIGHT',
+        sky: 0x060b19,
+        fog: 0x0b132b,
+        sunColor: 0x6384ff,
+        sunInt: 0.45,
+        hemiSky: 0x1e2d5a,
+        hemiGround: 0x080d1a,
+        hemiInt: 0.48
+      }
+    ];
+
+    // 自機（ソルバルウ風）状態
+    const player = {
+      x: 0,
+      y: 16,
+      z: 0,
+      vx: 0,
+      bank: 0,
+      pitch: 0,
+      zapperCooldown: 0,
+      blasterCooldown: 0,
+      shieldTimer: 0,
+      mesh: null,
+      shieldMesh: null,
+      sightGroup: null,        // 対地ブラスター照準サイト（地上投影）
+      sightTarget: null
+    };
+
+    // =========================================================================
+    // 2. Three.js コア＆オブジェクトプール
+    // =========================================================================
+    let scene, camera, renderer, sunLight, hemiLight;
+    let clock = new THREE.Clock();
+    let hudCanvas, hudCtx;
+    let raycaster = new THREE.Raycaster();
+    let groundPlaneMath = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+
+    const FIELD_HALF_W = 36;
+    const CHUNK_LEN = 40;
+    const CHUNK_COUNT = 12;
+
+    const GEO = {};
+    const MAT = {};
+    const TEX = {};
+
+    let terrainChunks = [];
+    let groundTargets = [];    // 地上基地・レーダードーム・ピラミッド・砲台
+    let airEnemies = [];       // トーロイド編隊・回転モノリス（バキュラ風）・浮遊要塞
+    let playerZappers = [];    // 対空レーザー弾
+    let playerBlasters = [];   // 対地爆弾
+    let enemyBullets = [];     // 敵スパリオ弾
+    let explosions = [];       // 爆発パーティクル
+    let wingTrails = [];       // 翼端ベイパートレイル（飛行機雲）
+
+    // =========================================================================
+    // 3. Three.js 初期化＆プロシージャル質感テクスチャ生成
+    // =========================================================================
+    function initThree() {
+      const container = document.getElementById('three-container');
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(TIME_THEMES[0].sky);
+      scene.fog = new THREE.FogExp2(TIME_THEMES[0].fog, 0.0031);
+
+      camera = new THREE.PerspectiveCamera(52, container.clientWidth / container.clientHeight, 0.5, 650);
+
+      renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+      renderer.setSize(container.clientWidth, container.clientHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.08;
+      container.appendChild(renderer.domElement);
+
+      hemiLight = new THREE.HemisphereLight(0xa5d8ff, 0x2d4a22, 0.82);
+      scene.add(hemiLight);
+
+      sunLight = new THREE.DirectionalLight(0xfff8e6, 1.45);
+      sunLight.position.set(70, 130, 50);
+      sunLight.castShadow = true;
+      sunLight.shadow.mapSize.width = 2048;
+      sunLight.shadow.mapSize.height = 2048;
+      const d = 145;
+      sunLight.shadow.camera.left = -d;
+      sunLight.shadow.camera.right = d;
+      sunLight.shadow.camera.top = d;
+      sunLight.shadow.camera.bottom = -d;
+      sunLight.shadow.camera.near = 10;
+      sunLight.shadow.camera.far = 360;
+      sunLight.shadow.bias = -0.0006;
+      scene.add(sunLight);
+      scene.add(sunLight.target);
+
+      buildProceduralTextures();
+      buildCache();
+      buildTerrainChunks();
+      player.mesh = buildPlayerShip();
+      scene.add(player.mesh);
+
+      player.sightGroup = buildGroundSight();
+      scene.add(player.sightGroup);
+
+      // 初期の地上ターゲット＆空中編隊を配置
+      for (let i = 0; i < 4; i++) {
+        spawnAirSquadron();
+      }
+
+      applyTimeTheme();
+    }
+
+    /**
+     * 金属パネル・地形の凹凸・水面のさざ波を生成するプロシージャルテクスチャ群
+     */
+    function buildProceduralTextures() {
+      // 1) 金属機体・要塞用パネルライン＆リベットバンプマップ
+      const hullCanvas = document.createElement('canvas');
+      hullCanvas.width = 256;
+      hullCanvas.height = 256;
+      const hCtx = hullCanvas.getContext('2d');
+      hCtx.fillStyle = '#808080';
+      hCtx.fillRect(0, 0, 256, 256);
+
+      // 微細なヘアラインブラシ加工
+      for (let y = 0; y < 256; y += 2) {
+        const shade = 122 + Math.floor(Math.random() * 14);
+        hCtx.fillStyle = `rgb(${shade},${shade},${shade})`;
+        hCtx.fillRect(0, y, 256, 1);
+      }
+
+      // 装甲パネルの継ぎ目ライン
+      hCtx.strokeStyle = '#383838';
+      hCtx.lineWidth = 2;
+      hCtx.strokeRect(8, 8, 112, 112);
+      hCtx.strokeRect(136, 8, 112, 112);
+      hCtx.strokeRect(8, 136, 240, 112);
+
+      // リベット点
+      hCtx.fillStyle = '#c8c8c8';
+      for (let x = 16; x < 248; x += 24) {
+        hCtx.fillRect(x, 14, 2, 2);
+        hCtx.fillRect(x, 112, 2, 2);
+        hCtx.fillRect(x, 142, 2, 2);
+        hCtx.fillRect(x, 240, 2, 2);
+      }
+      TEX.hullBump = new THREE.CanvasTexture(hullCanvas);
+      TEX.hullBump.wrapS = THREE.RepeatWrapping;
+      TEX.hullBump.wrapT = THREE.RepeatWrapping;
+
+      // 2) 大地・砂漠・森林の微細粒状バンプマップ
+      const gCanvas = document.createElement('canvas');
+      gCanvas.width = 256;
+      gCanvas.height = 256;
+      const gCtx = gCanvas.getContext('2d');
+      const imgData = gCtx.createImageData(256, 256);
+      for (let i = 0; i < imgData.data.length; i += 4) {
+        const v = 100 + Math.floor(Math.random() * 55);
+        imgData.data[i] = v;
+        imgData.data[i + 1] = v;
+        imgData.data[i + 2] = v;
+        imgData.data[i + 3] = 255;
+      }
+      gCtx.putImageData(imgData, 0, 0);
+      TEX.groundBump = new THREE.CanvasTexture(gCanvas);
+      TEX.groundBump.wrapS = THREE.RepeatWrapping;
+      TEX.groundBump.wrapT = THREE.RepeatWrapping;
+      TEX.groundBump.repeat.set(6, 6);
+
+      // 3) 水面のさざ波バンプマップ
+      const wCanvas = document.createElement('canvas');
+      wCanvas.width = 256;
+      wCanvas.height = 256;
+      const wCtx = wCanvas.getContext('2d');
+      wCtx.fillStyle = '#808080';
+      wCtx.fillRect(0, 0, 256, 256);
+      for (let y = 0; y < 256; y += 3) {
+        for (let x = 0; x < 256; x += 8) {
+          const wave = Math.sin(x * 0.08 + y * 0.15) * 28 + 128;
+          wCtx.fillStyle = `rgb(${wave},${wave},${wave})`;
+          wCtx.fillRect(x, y, 8, 2);
+        }
+      }
+      TEX.waterBump = new THREE.CanvasTexture(wCanvas);
+      TEX.waterBump.wrapS = THREE.RepeatWrapping;
+      TEX.waterBump.wrapT = THREE.RepeatWrapping;
+      TEX.waterBump.repeat.set(4, 12);
+    }
+
+    function buildCache() {
+      GEO.box = new THREE.BoxGeometry(1, 1, 1);
+      GEO.cone = new THREE.ConeGeometry(0.6, 1, 7);
+      GEO.octa = new THREE.OctahedronGeometry(0.7, 0);
+      GEO.dodeca = new THREE.DodecahedronGeometry(0.75, 0);
+      GEO.cyl = new THREE.CylinderGeometry(0.5, 0.5, 1, 14);
+      GEO.sphere = new THREE.SphereGeometry(0.5, 14, 14);
+      GEO.torus = new THREE.TorusGeometry(0.5, 0.08, 8, 20);
+
+      MAT.grass = new THREE.MeshStandardMaterial({
+        vertexColors: true,
+        roughness: 0.86,
+        metalness: 0.04,
+        bumpMap: TEX.groundBump,
+        bumpScale: 0.45,
+        flatShading: true
+      });
+      MAT.forest = new THREE.MeshStandardMaterial({
+        color: 0x1e562c,
+        roughness: 0.84,
+        metalness: 0.04,
+        bumpMap: TEX.groundBump,
+        bumpScale: 0.35,
+        flatShading: true
+      });
+      MAT.forestDeep = new THREE.MeshStandardMaterial({
+        color: 0x143d1f,
+        roughness: 0.88,
+        metalness: 0.03,
+        bumpMap: TEX.groundBump,
+        bumpScale: 0.4,
+        flatShading: true
+      });
+      MAT.forestLight = new THREE.MeshStandardMaterial({
+        color: 0x2d6a36,
+        roughness: 0.80,
+        metalness: 0.05,
+        flatShading: true
+      });
+      MAT.trunk = new THREE.MeshStandardMaterial({ color: 0x4a3525, roughness: 0.92 });
+      MAT.water = new THREE.MeshPhysicalMaterial({
+        color: 0x0369a1,
+        emissive: 0x082f49,
+        emissiveIntensity: 0.25,
+        roughness: 0.14,
+        metalness: 0.25,
+        clearcoat: 0.9,
+        clearcoatRoughness: 0.1,
+        bumpMap: TEX.waterBump,
+        bumpScale: 0.18
+      });
+      MAT.sand = new THREE.MeshStandardMaterial({
+        vertexColors: true,
+        roughness: 0.9,
+        metalness: 0.02,
+        bumpMap: TEX.groundBump,
+        bumpScale: 0.35,
+        flatShading: true
+      });
+      MAT.nazcaLine = new THREE.MeshBasicMaterial({ color: 0xfef3c7 });
+
+      MAT.shipWhite = new THREE.MeshPhysicalMaterial({
+        color: 0xf8fafc,
+        roughness: 0.24,
+        metalness: 0.32,
+        clearcoat: 0.65,
+        clearcoatRoughness: 0.18,
+        bumpMap: TEX.hullBump,
+        bumpScale: 0.04
+      });
+      MAT.shipRed = new THREE.MeshPhysicalMaterial({
+        color: 0xe11d48,
+        roughness: 0.28,
+        metalness: 0.25,
+        clearcoat: 0.6,
+        bumpMap: TEX.hullBump,
+        bumpScale: 0.03
+      });
+      MAT.shipBlue = new THREE.MeshPhysicalMaterial({
+        color: 0x0284c7,
+        emissive: 0x0c4a6e,
+        emissiveIntensity: 0.35,
+        roughness: 0.08,
+        metalness: 0.85,
+        clearcoat: 1.0
+      });
+      MAT.engineGlow = new THREE.MeshBasicMaterial({ color: 0x38bdf8 });
+
+      MAT.enemySilver = new THREE.MeshPhysicalMaterial({
+        color: 0xdbe4ee,
+        roughness: 0.16,
+        metalness: 0.88,
+        clearcoat: 0.7,
+        bumpMap: TEX.hullBump,
+        bumpScale: 0.07
+      });
+      MAT.enemyDark = new THREE.MeshStandardMaterial({
+        color: 0x1e293b,
+        roughness: 0.38,
+        metalness: 0.78,
+        bumpMap: TEX.hullBump,
+        bumpScale: 0.09
+      });
+      MAT.monolith = new THREE.MeshPhysicalMaterial({
+        color: 0x070a12,
+        emissive: 0x0f172a,
+        emissiveIntensity: 0.2,
+        roughness: 0.06,
+        metalness: 0.95,
+        clearcoat: 1.0,
+        clearcoatRoughness: 0.04,
+        bumpMap: TEX.hullBump,
+        bumpScale: 0.02
+      });
+      MAT.coreRed = new THREE.MeshStandardMaterial({
+        color: 0xff1e42,
+        emissive: 0xe11d48,
+        emissiveIntensity: 0.9,
+        roughness: 0.2
+      });
+      MAT.goldPyramid = new THREE.MeshPhysicalMaterial({
+        color: 0xf59e0b,
+        roughness: 0.25,
+        metalness: 0.72,
+        clearcoat: 0.5,
+        bumpMap: TEX.hullBump,
+        bumpScale: 0.06
+      });
+      MAT.zapperLaser = new THREE.MeshBasicMaterial({ color: 0x22d3ee });
+      MAT.blasterBomb = new THREE.MeshBasicMaterial({ color: 0xfbbf24 });
+      MAT.enemyBullet = new THREE.MeshBasicMaterial({ color: 0xff3b5c });
+    }
+
+    // 自機（ソルバルウ風の白・赤・青キャノピー＋縦2連大型エンジンの3D戦闘機）
+    function buildPlayerShip() {
+      const g = new THREE.Group();
+
+      // メイン機首＆前部胴体
+      const nose = new THREE.Mesh(GEO.cone, MAT.shipWhite);
+      nose.rotation.x = Math.PI * 0.5;
+      nose.scale.set(1.45, 4.8, 0.95);
+      nose.position.set(0, -0.05, 1.4);
+      g.add(nose);
+
+      // 機首の赤いノーズコーン＆センターライン
+      const noseTip = new THREE.Mesh(GEO.cone, MAT.shipRed);
+      noseTip.rotation.x = Math.PI * 0.5;
+      noseTip.scale.set(0.65, 1.5, 0.55);
+      noseTip.position.set(0, -0.05, 3.1);
+      g.add(noseTip);
+
+      // 主翼（デルタ＋前進翼シルエット）
+      const wing = new THREE.Mesh(GEO.box, MAT.shipWhite);
+      wing.scale.set(5.8, 0.2, 1.9);
+      wing.position.set(0, -0.1, -0.25);
+      g.add(wing);
+
+      // 赤い翼端アクセント＆翼面ストライプ
+      const stripeL = new THREE.Mesh(GEO.box, MAT.shipRed);
+      stripeL.scale.set(0.65, 0.26, 2.3);
+      stripeL.position.set(-2.65, -0.08, -0.25);
+      const stripeR = new THREE.Mesh(GEO.box, MAT.shipRed);
+      stripeR.scale.set(0.65, 0.26, 2.3);
+      stripeR.position.set(2.65, -0.08, -0.25);
+      g.add(stripeL, stripeR);
+
+      // ブルーキャノピー
+      const canopy = new THREE.Mesh(GEO.sphere, MAT.shipBlue);
+      canopy.scale.set(0.82, 0.62, 1.75);
+      canopy.position.set(0, 0.42, 0.85);
+      g.add(canopy);
+
+      // ソルバルウの特徴である「縦（上下）に2筒並んだ大型円筒ジェットエンジン」
+      const enginePositionsY = [0.58, -0.42];
+      enginePositionsY.forEach((ey, idx) => {
+        const radius = idx === 0 ? 0.92 : 0.86;
+        // 大型円筒エンジンポッド本体
+        const pod = new THREE.Mesh(GEO.cyl, MAT.shipWhite);
+        pod.rotation.x = Math.PI * 0.5;
+        pod.scale.set(radius, 2.55, radius);
+        pod.position.set(0, ey, -1.05);
+        g.add(pod);
+
+        // エンジンインテーク＆後部赤いリング帯
+        const band = new THREE.Mesh(GEO.cyl, MAT.shipRed);
+        band.rotation.x = Math.PI * 0.5;
+        band.scale.set(radius * 1.05, 0.35, radius * 1.05);
+        band.position.set(0, ey, -0.2);
+        g.add(band);
+
+        // ノズル外周ダークリング
+        const nozzleRim = new THREE.Mesh(GEO.cyl, MAT.enemyDark);
+        nozzleRim.rotation.x = Math.PI * 0.5;
+        nozzleRim.scale.set(radius * 0.88, 0.35, radius * 0.88);
+        nozzleRim.position.set(0, ey, -2.35);
+        g.add(nozzleRim);
+
+        // 発光するジェット噴射コア
+        const glow = new THREE.Mesh(GEO.sphere, MAT.engineGlow);
+        glow.scale.set(radius * 0.68, radius * 0.68, 0.9);
+        glow.position.set(0, ey, -2.52);
+        g.add(glow);
+      });
+
+      // 左右の小型安定尾翼
+      const finL = new THREE.Mesh(GEO.box, MAT.shipRed);
+      finL.scale.set(0.16, 0.95, 1.0);
+      finL.position.set(-0.75, 0.65, -1.65);
+      finL.rotation.z = 0.25;
+      const finR = new THREE.Mesh(GEO.box, MAT.shipRed);
+      finR.scale.set(0.16, 0.95, 1.0);
+      finR.position.set(0.75, 0.65, -1.65);
+      finR.rotation.z = -0.25;
+      g.add(finL, finR);
+
+      // シールドエフェクト
+      const shieldGeo = new THREE.SphereGeometry(3.6, 14, 14);
+      const shieldMat = new THREE.MeshBasicMaterial({
+        color: 0x38bdf8,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.35
+      });
+      player.shieldMesh = new THREE.Mesh(shieldGeo, shieldMat);
+      player.shieldMesh.visible = false;
+      g.add(player.shieldMesh);
+
+      g.traverse((obj) => {
+        if (obj.isMesh && obj !== player.shieldMesh) {
+          obj.castShadow = true;
+        }
+      });
+
+      return g;
+    }
+
+    // 地上に投影される対地ブラスター照準サイト
+    function buildGroundSight() {
+      const g = new THREE.Group();
+      const ringMat = new THREE.MeshBasicMaterial({ color: 0xfbbf24, side: THREE.DoubleSide });
+      const ring = new THREE.Mesh(new THREE.RingGeometry(1.7, 2.2, 24), ringMat);
+      ring.rotation.x = -Math.PI * 0.5;
+      g.add(ring);
+
+      const bar1 = new THREE.Mesh(GEO.box, ringMat);
+      bar1.scale.set(5.2, 0.06, 0.24);
+      const bar2 = new THREE.Mesh(GEO.box, ringMat);
+      bar2.scale.set(0.24, 0.06, 5.2);
+      g.add(bar1, bar2);
+
+      return g;
+    }
+
+    // =========================================================================
+    // 4. 無限スクロール3Dゼビウス地形（森林・蛇行する川・砂漠の地上絵・一面の森）
+    // =========================================================================
+    function hash(n) {
+      const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+      return x - Math.floor(x);
+    }
+
+    function buildTerrainChunks() {
+      for (let i = 0; i < CHUNK_COUNT; i++) {
+        const group = new THREE.Group();
+        scene.add(group);
+        terrainChunks.push({ group, index: -999 });
+      }
+    }
+
+    function populateTerrainChunk(slot, idx) {
+      const g = slot.group;
+      while (g.children.length > 0) {
+        const ch = g.children[0];
+        if (
+          ch.geometry &&
+          ch.geometry !== GEO.box &&
+          ch.geometry !== GEO.cone &&
+          ch.geometry !== GEO.cyl &&
+          ch.geometry !== GEO.dodeca &&
+          ch.geometry !== GEO.octa &&
+          ch.geometry !== GEO.torus
+        ) {
+          ch.geometry.dispose();
+        }
+        g.remove(ch);
+      }
+      slot.index = idx;
+
+      const worldZ = idx * CHUNK_LEN;
+      const isDesert = (Math.floor(idx / 6) % 2) === 1;
+      const riverCenterX = Math.sin(idx * 0.45) * 18;
+
+      // 16x4分割の凹凸ポリゴン地形メッシュ（頂点カラーで川辺の砂利・草原・丘陵のグラデーション表現）
+      const geo = new THREE.PlaneGeometry(180, CHUNK_LEN, 28, 6);
+      geo.rotateX(-Math.PI * 0.5);
+      const pos = geo.attributes.position;
+      const colors = new Float32Array(pos.count * 3);
+      const tmpCol = new THREE.Color();
+
+      for (let i = 0; i < pos.count; i++) {
+        const lx = pos.getX(i);
+        const lz = pos.getZ(i) + worldZ;
+        const distFromRiver = Math.abs(lx - riverCenterX);
+        const edgeHill = Math.pow(Math.max(0, (Math.abs(lx) - 32) / 52), 2) * 16;
+        const undulation = Math.sin(lx * 0.08 + lz * 0.05) * 1.4 + Math.cos(lz * 0.09) * 0.8;
+
+        let h = edgeHill + undulation;
+        if (!isDesert && distFromRiver < 7.5) {
+          h = -1.8 * (1 - distFromRiver / 7.5);
+        }
+        pos.setY(i, h);
+
+        // バイオームと標高に応じた自然な頂点カラーグラデーション
+        if (isDesert) {
+          const sandTone = 0.92 + Math.sin(lx * 0.1 + lz * 0.06) * 0.08;
+          tmpCol.setRGB(0.84 * sandTone, 0.67 * sandTone, 0.42 * sandTone);
+        } else if (distFromRiver < 9.5) {
+          // 川辺の砂利・土手グラデーション
+          const bankT = Math.max(0, (distFromRiver - 6.0) / 3.5);
+          tmpCol.setRGB(0.55, 0.49, 0.36).lerp(new THREE.Color(0x2d6a36), bankT);
+        } else if (h > 6.5) {
+          // 丘陵の岩肌と濃い緑
+          const hillT = Math.min(1, (h - 6.5) / 12);
+          tmpCol.setRGB(0.18, 0.42, 0.22).lerp(new THREE.Color(0x475569), hillT);
+        } else {
+          // 草原の濃淡
+          const grassVar = 0.92 + Math.cos(lx * 0.12 - lz * 0.08) * 0.08;
+          tmpCol.setRGB(0.18 * grassVar, 0.44 * grassVar, 0.22 * grassVar);
+        }
+        colors[i * 3] = tmpCol.r;
+        colors[i * 3 + 1] = tmpCol.g;
+        colors[i * 3 + 2] = tmpCol.b;
+      }
+      geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      geo.computeVertexNormals();
+
+      const groundMesh = new THREE.Mesh(geo, isDesert ? MAT.sand : MAT.grass);
+      groundMesh.position.set(0, 0, worldZ);
+      groundMesh.receiveShadow = true;
+      g.add(groundMesh);
+
+      // 森林エリアには蛇行する川を配置
+      if (!isDesert) {
+        const riverGeo = new THREE.PlaneGeometry(13, CHUNK_LEN + 1);
+        riverGeo.rotateX(-Math.PI * 0.5);
+        const riverMesh = new THREE.Mesh(riverGeo, MAT.water);
+        riverMesh.position.set(riverCenterX, -0.35, worldZ);
+        riverMesh.receiveShadow = true;
+        g.add(riverMesh);
+      }
+
+      // 砂漠エリアには名物の「ナスカの地上絵（ハチドリ・幾何学ライン）」を描画
+      if (isDesert && idx % 3 === 1) {
+        const lineGroup = new THREE.Group();
+        lineGroup.position.set((hash(idx) - 0.5) * 24, 0.25, worldZ);
+        const bar1 = new THREE.Mesh(GEO.box, MAT.nazcaLine);
+        bar1.scale.set(18, 0.08, 0.7);
+        const bar2 = new THREE.Mesh(GEO.box, MAT.nazcaLine);
+        bar2.scale.set(0.7, 0.08, 22);
+        const ring = new THREE.Mesh(new THREE.RingGeometry(4.2, 4.9, 20), MAT.nazcaLine);
+        ring.rotation.x = -Math.PI * 0.5;
+        lineGroup.add(bar1, bar2, ring);
+        g.add(lineGroup);
+      }
+
+      // 1) 一面の森（ゼビウス特有のモコモコと連なる樹海パッチ）
+      if (!isDesert && idx % 2 === 0) {
+        const patchCount = 2;
+        for (let p = 0; p < patchCount; p++) {
+          const side = (p === 0 ? -1 : 1);
+          const centerPatchX = side * (16 + hash(idx * 19 + p * 37) * 28);
+          const centerPatchZ = worldZ + (hash(idx * 23 + p * 41) - 0.5) * 22;
+          // 川の上には森を作らない
+          if (Math.abs(centerPatchX - riverCenterX) < 11) continue;
+
+          const clusterNodes = 16;
+          for (let c = 0; c < clusterNodes; c++) {
+            const ang = c * 2.39996 + hash(idx + p);
+            const rad = Math.sqrt(c / clusterNodes) * 14.5;
+            const fx = centerPatchX + Math.cos(ang) * rad;
+            const fz = centerPatchZ + Math.sin(ang) * rad;
+            if (Math.abs(fx - riverCenterX) < 8.5) continue;
+
+            const edgeH = Math.pow(Math.max(0, (Math.abs(fx) - 32) / 52), 2) * 16;
+            const canopyScale = 3.6 + hash(idx * 7 + c * 13) * 2.4;
+            const matChoice = c % 3 === 0 ? MAT.forestDeep : (c % 3 === 1 ? MAT.forest : MAT.forestLight);
+
+            const canopy = new THREE.Mesh(GEO.dodeca, matChoice);
+            canopy.position.set(fx, edgeH + canopyScale * 0.55, fz);
+            canopy.scale.set(canopyScale * 1.25, canopyScale * 0.85, canopyScale * 1.25);
+            canopy.rotation.set(hash(c) * 2, hash(c + idx) * 3, 0);
+            canopy.castShadow = true;
+            canopy.receiveShadow = true;
+            g.add(canopy);
+          }
+        }
+      }
+
+      // 2) 点在する広葉樹（幹＋多面体クラスター樹冠：タケノコ型を廃止）
+      const treeCount = isDesert ? 2 : 12;
+      for (let t = 0; t < treeCount; t++) {
+        const rx = (hash(idx * 31 + t * 7) - 0.5) * 112;
+        const rz = worldZ + (hash(idx * 17 + t * 13) - 0.5) * CHUNK_LEN;
+        if (!isDesert && Math.abs(rx - riverCenterX) < 8.5) continue;
+
+        const edgeH = Math.pow(Math.max(0, (Math.abs(rx) - 32) / 52), 2) * 16;
+        const treeScale = 2.4 + hash(t + idx) * 1.6;
+
+        const trunk = new THREE.Mesh(GEO.cyl, MAT.trunk);
+        trunk.position.set(rx, edgeH + 0.9, rz);
+        trunk.scale.set(0.55, 1.8, 0.55);
+        trunk.castShadow = true;
+
+        // メイン樹冠＋サブ樹冠を重ねて自然な木のボリュームを表現
+        const crownMain = new THREE.Mesh(GEO.dodeca, t % 2 === 0 ? MAT.forest : MAT.forestLight);
+        crownMain.position.set(rx, edgeH + 2.2 + treeScale * 0.35, rz);
+        crownMain.scale.set(treeScale * 1.15, treeScale * 0.95, treeScale * 1.15);
+        crownMain.rotation.y = hash(t * 5) * Math.PI;
+        crownMain.castShadow = true;
+        crownMain.receiveShadow = true;
+
+        const crownSub = new THREE.Mesh(GEO.dodeca, MAT.forestDeep);
+        crownSub.position.set(rx + 0.65, edgeH + 2.6 + treeScale * 0.45, rz - 0.45);
+        crownSub.scale.set(treeScale * 0.85, treeScale * 0.78, treeScale * 0.85);
+        crownSub.castShadow = true;
+        crownSub.receiveShadow = true;
+
+        g.add(trunk, crownMain, crownSub);
+      }
+
+      // 地上ターゲット（ソルバルウがブラスターで爆撃する地上基地・レーダードーム・ピラミッド）
+      if (idx > 1) {
+        const targetCount = 2 + (idx % 2);
+        for (let k = 0; k < targetCount; k++) {
+          const tx = (hash(idx * 53 + k * 19) - 0.5) * (FIELD_HALF_W * 1.6);
+          const tz = worldZ + (hash(idx * 61 + k * 23) - 0.5) * (CHUNK_LEN * 0.75);
+          if (!isDesert && Math.abs(tx - riverCenterX) < 8) continue;
+
+          const tGroup = new THREE.Group();
+          tGroup.position.set(tx, 0.4, tz);
+
+          const isPyramid = isDesert && k === 0;
+          if (isPyramid) {
+            // ソル風ピラミッド塔
+            const pyr = new THREE.Mesh(GEO.cone, MAT.goldPyramid);
+            pyr.scale.set(4.5, 6.5, 4.5);
+            pyr.position.y = 3.2;
+            pyr.castShadow = true;
+            pyr.receiveShadow = true;
+            tGroup.add(pyr);
+          } else {
+            // 八角形地上ベース「ログラム／グロブダー」風
+            const base = new THREE.Mesh(GEO.cyl, MAT.enemySilver);
+            base.scale.set(4.2, 1.4, 4.2);
+            base.position.y = 0.7;
+            base.castShadow = true;
+            base.receiveShadow = true;
+            const core = new THREE.Mesh(GEO.sphere, MAT.coreRed);
+            core.scale.set(2.0, 1.4, 2.0);
+            core.position.y = 1.5;
+            tGroup.add(base, core);
+          }
+
+          scene.add(tGroup);
+          groundTargets.push({
+            mesh: tGroup,
+            x: tx,
+            y: 1.0,
+            z: tz,
+            points: isPyramid ? 2000 : 800,
+            alive: true
+          });
+        }
+      }
+    }
+
+    // =========================================================================
+    // 5. 空中敵編隊＆浮遊要塞（アンドアジェネシス風）生成
+    // =========================================================================
+    function spawnAirSquadron() {
+      const typeRoll = Math.random();
+      const baseX = (Math.random() - 0.5) * (FIELD_HALF_W * 1.4);
+      const startZ = sim.scrollZ + 145;
+
+      if (typeRoll < 0.35) {
+        // 『2001年宇宙の旅』風の漆黒モノリス（縦横比を引き締めた縦回転障害物）
+        const monolithGroup = new THREE.Group();
+        const slab = new THREE.Mesh(GEO.box, MAT.monolith);
+        slab.scale.set(2.8, 3.6, 0.38);
+        slab.castShadow = true;
+        monolithGroup.add(slab);
+
+        // エッジが光を受けるシルバー縁取りライン
+        const rim = new THREE.Mesh(GEO.box, MAT.enemySilver);
+        rim.scale.set(2.88, 3.68, 0.32);
+        monolithGroup.add(rim);
+
+        monolithGroup.position.set(baseX, player.y + 0.5, startZ);
+        scene.add(monolithGroup);
+        airEnemies.push({
+          mesh: monolithGroup,
+          type: 'bacura',
+          x: baseX,
+          y: player.y + 0.5,
+          z: startZ,
+          vx: 0,
+          vz: -32,
+          hp: 999,
+          points: 0
+        });
+      } else {
+        // 編隊飛行する円盤「トーロイド／ザカート」風編隊（3機）
+        for (let i = 0; i < 3; i++) {
+          const ufo = new THREE.Group();
+          const disc = new THREE.Mesh(GEO.cyl, MAT.enemySilver);
+          disc.scale.set(3.2, 0.55, 3.2);
+          disc.castShadow = true;
+          const dome = new THREE.Mesh(GEO.sphere, MAT.coreRed);
+          dome.scale.set(1.4, 0.9, 1.4);
+          dome.position.y = 0.3;
+          ufo.add(disc, dome);
+
+          const ex = baseX + (i - 1) * 6.5;
+          const ez = startZ + i * 8;
+          ufo.position.set(ex, player.y, ez);
+          scene.add(ufo);
+
+          airEnemies.push({
+            mesh: ufo,
+            type: 'toroid',
+            x: ex,
+            y: player.y,
+            z: ez,
+            vx: (Math.random() - 0.5) * 16,
+            vz: -24,
+            hp: 1,
+            points: 500,
+            fireTimer: 1.0 + i * 0.5
+          });
+        }
+      }
+    }
+
+    function spawnFloatingFortress() {
+      const fGroup = new THREE.Group();
+      const hull = new THREE.Mesh(GEO.cyl, MAT.enemyDark);
+      hull.scale.set(16, 2.6, 16);
+      hull.castShadow = true;
+      hull.receiveShadow = true;
+      const ring = new THREE.Mesh(GEO.torus, MAT.enemySilver);
+      ring.rotation.x = Math.PI * 0.5;
+      ring.scale.set(16.5, 16.5, 4);
+      const core = new THREE.Mesh(GEO.sphere, MAT.coreRed);
+      core.scale.set(4.2, 2.2, 4.2);
+      core.position.y = 1.4;
+      fGroup.add(hull, ring, core);
+
+      // 周囲の4基の砲台コア
+      for (let i = 0; i < 4; i++) {
+        const ang = (i * Math.PI) / 2;
+        const sub = new THREE.Mesh(GEO.sphere, MAT.coreRed);
+        sub.scale.set(1.8, 1.2, 1.8);
+        sub.position.set(Math.cos(ang) * 5.8, 1.2, Math.sin(ang) * 5.8);
+        fGroup.add(sub);
+      }
+
+      const fz = sim.scrollZ + 125;
+      fGroup.position.set(0, player.y + 3.5, fz);
+      scene.add(fGroup);
+
+      airEnemies.push({
+        mesh: fGroup,
+        type: 'fortress',
+        x: 0,
+        y: player.y + 3.5,
+        z: fz,
+        vx: 8,
+        vz: -6,
+        hp: 16,
+        points: 10000,
+        fireTimer: 0.8
+      });
+
+      sim.aiMessage = 'WARNING!! 浮遊要塞アンドアジェネシス接近・コア集中攻撃！';
+      playTone('alert');
+    }
+
+    // =========================================================================
+    // 6. AIパイロット自動操縦＆オート攻撃ロジック
+    // =========================================================================
+    function updateAIPilot(dt) {
+      player.z = sim.scrollZ;
+
+      // 1) 回避ベクトル計算（敵弾・モノリス・敵機からの反発力）
+      let avoidX = 0;
+      for (const b of enemyBullets) {
+        const dz = b.z - player.z;
+        const dx = b.x - player.x;
+        if (dz > -4 && dz < 34 && Math.abs(dx) < 8.5) {
+          avoidX -= Math.sign(dx || 1) * (38 - dz) * 1.2;
+        }
+      }
+      for (const e of airEnemies) {
+        const dz = e.z - player.z;
+        const dx = e.x - player.x;
+        if (dz > -6 && dz < 42 && Math.abs(dx) < (e.type === 'fortress' ? 14 : 8)) {
+          avoidX -= Math.sign(dx || 1) * (44 - dz) * 1.4;
+        }
+      }
+
+      // 2) 攻撃ターゲット選定（対空敵 or 地上ターゲットへ軸を合わせる）
+      let desiredX = Math.sin(sim.scrollZ * 0.018) * 14;
+      let bestAirTarget = null;
+      let minAirDist = 999;
+
+      for (const e of airEnemies) {
+        if (e.type === 'bacura') continue;
+        const dz = e.z - player.z;
+        if (dz > 8 && dz < minAirDist) {
+          minAirDist = dz;
+          bestAirTarget = e;
+        }
+      }
+
+      // 地上照準サイト（前方26mの地面位置）
+      const sightZ = player.z + 26;
+      let bestGroundTarget = null;
+      let minGroundDist = 999;
+      for (const gt of groundTargets) {
+        if (!gt.alive) continue;
+        const dz = gt.z - sightZ;
+        if (dz > -6 && dz < 55 && dz < minGroundDist) {
+          minGroundDist = dz;
+          bestGroundTarget = gt;
+        }
+      }
+
+      if (bestAirTarget) {
+        desiredX = bestAirTarget.x;
+      } else if (bestGroundTarget) {
+        desiredX = bestGroundTarget.x;
+      }
+
+      const targetX = Math.max(-FIELD_HALF_W + 4, Math.min(FIELD_HALF_W - 4, desiredX + avoidX));
+      const diffX = targetX - player.x;
+      const desiredVx = Math.max(-34, Math.min(34, diffX * 4.5));
+
+      player.vx += (desiredVx - player.vx) * Math.min(1, dt * 8);
+      player.x += player.vx * dt;
+      player.x = Math.max(-FIELD_HALF_W + 3, Math.min(FIELD_HALF_W - 3, player.x));
+
+      // バンク角・ピッチ角の滑らかな演出
+      player.bank += (-player.vx * 0.024 - player.bank) * Math.min(1, dt * 10);
+      player.pitch = Math.sin(sim.scrollZ * 0.04) * 0.05;
+
+      player.mesh.position.set(player.x, player.y + Math.sin(sim.scrollZ * 0.05) * 0.45, player.z);
+      player.mesh.rotation.set(player.pitch, 0, player.bank);
+
+      // シールド演出更新
+      if (player.shieldTimer > 0) {
+        player.shieldTimer -= dt;
+        player.shieldMesh.visible = true;
+        player.shieldMesh.rotation.y += dt * 4;
+      } else {
+        player.shieldMesh.visible = false;
+      }
+
+      // 対地照準サイトの地上追従＆ロックオン色変化
+      player.sightTarget = null;
+      for (const gt of groundTargets) {
+        if (!gt.alive) continue;
+        if (Math.hypot(gt.x - player.x, gt.z - sightZ) < 4.5) {
+          player.sightTarget = gt;
+          break;
+        }
+      }
+      player.sightGroup.position.set(player.x, 0.35, sightZ);
+      player.sightGroup.rotation.y += dt * 2.5;
+      const lockedColor = player.sightTarget ? 0xff1e42 : 0xfbbf24;
+      player.sightGroup.children.forEach((c) => c.material.color.setHex(lockedColor));
+
+      // 3) 自動ザッパー（対空レーザー）発射
+      player.zapperCooldown -= dt;
+      if (bestAirTarget && Math.abs(bestAirTarget.x - player.x) < 6.5 && player.zapperCooldown <= 0) {
+        fireZapper();
+        player.zapperCooldown = 0.16;
+      }
+
+      // 4) 自動ブラスター（対地爆撃）投下
+      player.blasterCooldown -= dt;
+      if (player.sightTarget && player.blasterCooldown <= 0) {
+        fireBlaster(player.sightTarget.x, player.sightTarget.z);
+        player.blasterCooldown = 0.32;
+      }
+    }
+
+    function fireZapper() {
+      [-0.75, 0.75].forEach((offset) => {
+        const beam = new THREE.Mesh(GEO.box, MAT.zapperLaser);
+        beam.scale.set(0.22, 0.22, 4.2);
+        beam.position.set(player.x + offset, player.y, player.z + 3.2);
+        scene.add(beam);
+        playerZappers.push({
+          mesh: beam,
+          x: player.x + offset,
+          y: player.y,
+          z: player.z + 3.2,
+          vz: 165
+        });
+      });
+      playTone('zapper');
+    }
+
+    function fireBlaster(tx, tz) {
+      const bomb = new THREE.Mesh(GEO.sphere, MAT.blasterBomb);
+      bomb.scale.set(0.85, 0.85, 0.85);
+      bomb.position.set(player.x, player.y - 0.5, player.z + 1.5);
+      scene.add(bomb);
+
+      playerBlasters.push({
+        mesh: bomb,
+        startX: player.x,
+        startY: player.y - 0.5,
+        startZ: player.z + 1.5,
+        targetX: tx,
+        targetZ: tz,
+        progress: 0,
+        duration: 0.42
+      });
+      playTone('blaster');
+    }
+
+    function triggerMassiveAirstrike() {
+      sim.aiMessage = 'SUPPORT AIRSTRIKE!! 全地上目標へ広域絨毯爆撃を実行！';
+      let count = 0;
+      for (const gt of groundTargets) {
+        if (gt.alive && gt.z > player.z && gt.z < player.z + 150 && count < 8) {
+          fireBlaster(gt.x, gt.z);
+          count++;
+        }
+      }
+      if (count === 0) {
+        for (let i = 0; i < 6; i++) {
+          fireBlaster((Math.random() - 0.5) * 44, player.z + 25 + i * 16);
+        }
+      }
+    }
+
+    // =========================================================================
+    // 7. 弾丸・敵機・爆発エフェクト更新
+    // =========================================================================
+    function spawnExplosion(x, y, z, scale = 1.0, colorHex = 0xf97316) {
+      const mat = new THREE.MeshBasicMaterial({ color: colorHex, transparent: true, opacity: 1 });
+      for (let i = 0; i < 10; i++) {
+        const p = new THREE.Mesh(GEO.octa, mat);
+        p.position.set(x, y, z);
+        const s = (0.7 + Math.random() * 1.1) * scale;
+        p.scale.set(s, s, s);
+        scene.add(p);
+        explosions.push({
+          mesh: p,
+          vx: (Math.random() - 0.5) * 24 * scale,
+          vy: (Math.random() * 14 + 4) * scale,
+          vz: (Math.random() - 0.5) * 24 * scale,
+          life: 0.48
+        });
+      }
+      sim.screenShake = Math.max(sim.screenShake, 0.35 * scale);
+      playTone('boom');
+    }
+
+    function updateEntities(dt) {
+      const stepDt = dt * sim.timeScale;
+      sim.scrollZ += sim.forwardSpeed * stepDt;
+
+      // 太陽と影の追従（戦場全体にくっきり影を落とす）
+      sunLight.position.set(player.x + 65, 130, sim.scrollZ + 55);
+      sunLight.target.position.set(player.x, 0, sim.scrollZ + 35);
+
+      // エリア番号＆テーマ表示更新
+      const newArea = Math.floor(sim.scrollZ / 480) + 1;
+      if (newArea !== sim.area) {
+        sim.area = newArea;
+        const biomeName = (Math.floor((sim.scrollZ / CHUNK_LEN) / 6) % 2) === 1 ? 'DESERT / NAZCA' : 'FOREST / RIVER';
+        document.getElementById('hud-area').textContent = `${String(sim.area).padStart(2, '0')} / ${biomeName}`;
+      }
+
+      // 地形チャンクの無限リサイクル
+      const baseChunk = Math.floor(sim.scrollZ / CHUNK_LEN) - 2;
+      for (let i = 0; i < CHUNK_COUNT; i++) {
+        const idx = baseChunk + i;
+        const slot = terrainChunks[idx & (CHUNK_COUNT - 1)];
+        if (slot.index !== idx) {
+          populateTerrainChunk(slot, idx);
+        }
+      }
+
+      // 自機AI更新
+      updateAIPilot(stepDt);
+
+      // 翼端ベイパートレイル（飛行機雲）の生成と減衰
+      if (Math.random() < 0.75) {
+        [-2.75, 2.75].forEach((wingOff) => {
+          const trailGeo = new THREE.SphereGeometry(0.18, 6, 6);
+          const trailMat = new THREE.MeshBasicMaterial({
+            color: 0xffffff,
+            transparent: true,
+            opacity: 0.42
+          });
+          const tr = new THREE.Mesh(trailGeo, trailMat);
+          tr.position.set(
+            player.x + wingOff * Math.cos(player.bank),
+            player.mesh.position.y + wingOff * Math.sin(player.bank),
+            player.z - 0.6
+          );
+          scene.add(tr);
+          wingTrails.push({ mesh: tr, life: 0.65 });
+        });
+      }
+      for (let i = wingTrails.length - 1; i >= 0; i--) {
+        const wt = wingTrails[i];
+        wt.life -= stepDt;
+        wt.mesh.scale.multiplyScalar(1 + stepDt * 2.2);
+        wt.mesh.material.opacity = Math.max(0, wt.life * 0.6);
+        if (wt.life <= 0) {
+          scene.remove(wt.mesh);
+          wt.mesh.geometry.dispose();
+          wt.mesh.material.dispose();
+          wingTrails.splice(i, 1);
+        }
+      }
+
+      // 対空ザッパー弾の更新
+      for (let i = playerZappers.length - 1; i >= 0; i--) {
+        const z = playerZappers[i];
+        z.z += z.vz * stepDt;
+        z.mesh.position.z = z.z;
+
+        let hit = false;
+        for (let j = airEnemies.length - 1; j >= 0; j--) {
+          const e = airEnemies[j];
+          const hitRadius = e.type === 'fortress' ? 9.5 : 3.2;
+          if (Math.abs(e.z - z.z) < 4.5 && Math.abs(e.x - z.x) < hitRadius) {
+            hit = true;
+            if (e.type === 'bacura') {
+              // モノリスは金属音を立てて弾く
+              spawnExplosion(z.x, z.y, z.z, 0.3, 0x94a3b8);
+            } else {
+              e.hp -= 1;
+              if (e.hp <= 0) {
+                const isBoss = e.type === 'fortress';
+                spawnExplosion(e.x, e.y, e.z, isBoss ? 2.8 : 1.1, isBoss ? 0xfbbf24 : 0x38bdf8);
+                sim.score += e.points;
+                sim.kills += 1;
+                if (isBoss) sim.aiMessage = 'TARGET DESTROYED!! 浮遊要塞を完全撃破！';
+                scene.remove(e.mesh);
+                airEnemies.splice(j, 1);
+              } else {
+                spawnExplosion(z.x, z.y, z.z, 0.45, 0xf43f5e);
+              }
+            }
+            break;
+          }
+        }
+
+        if (hit || z.z > player.z + 165) {
+          scene.remove(z.mesh);
+          playerZappers.splice(i, 1);
+        }
+      }
+
+      // 対地ブラスター爆弾の更新（放物線軌道で地上へ着弾）
+      for (let i = playerBlasters.length - 1; i >= 0; i--) {
+        const b = playerBlasters[i];
+        b.progress += stepDt / b.duration;
+        const t = Math.min(1, b.progress);
+        const bx = b.startX + (b.targetX - b.startX) * t;
+        const bz = b.startZ + (b.targetZ - b.startZ) * t;
+        const by = b.startY * (1 - t * t) + 0.5;
+        b.mesh.position.set(bx, by, bz);
+
+        if (t >= 1) {
+          spawnExplosion(bx, 1.0, bz, 1.25, 0xf59e0b);
+          for (let j = groundTargets.length - 1; j >= 0; j--) {
+            const gt = groundTargets[j];
+            if (gt.alive && Math.hypot(gt.x - bx, gt.z - bz) < 6.8) {
+              gt.alive = false;
+              sim.score += gt.points;
+              sim.kills += 1;
+              scene.remove(gt.mesh);
+              groundTargets.splice(j, 1);
+            }
+          }
+          scene.remove(b.mesh);
+          playerBlasters.splice(i, 1);
+        }
+      }
+
+      // 空中敵の更新
+      for (let i = airEnemies.length - 1; i >= 0; i--) {
+        const e = airEnemies[i];
+        e.x += e.vx * stepDt;
+        e.z += e.vz * stepDt;
+        if (Math.abs(e.x) > FIELD_HALF_W - 4) e.vx *= -1;
+        e.mesh.position.set(e.x, e.y, e.z);
+
+        if (e.type === 'bacura') {
+          // 上下方向（X軸）に縦回転するモノリス／バキュラ挙動
+          e.mesh.rotation.x += stepDt * 5.2;
+          e.mesh.rotation.y = 0;
+          e.mesh.rotation.z = 0;
+        } else {
+          e.mesh.rotation.y += stepDt * 4;
+          e.fireTimer -= stepDt;
+          if (e.fireTimer <= 0 && e.z > player.z + 20 && e.z < player.z + 95) {
+            spawnEnemyBullet(e.x, e.y, e.z);
+            e.fireTimer = e.type === 'fortress' ? 0.65 : 2.2;
+          }
+        }
+
+        // 自機との接近判定（緊急バリア発動）
+        if (Math.abs(e.z - player.z) < 3.5 && Math.abs(e.x - player.x) < 3.5) {
+          player.shieldTimer = 1.2;
+        }
+
+        if (e.z < player.z - 25) {
+          scene.remove(e.mesh);
+          airEnemies.splice(i, 1);
+        }
+      }
+
+      // 編隊が少なければ自動補充
+      if (airEnemies.length < 4 && Math.random() < 0.05) {
+        spawnAirSquadron();
+      }
+
+      // 敵弾の更新
+      for (let i = enemyBullets.length - 1; i >= 0; i--) {
+        const eb = enemyBullets[i];
+        eb.x += eb.vx * stepDt;
+        eb.z += eb.vz * stepDt;
+        eb.mesh.position.set(eb.x, eb.y, eb.z);
+
+        if (Math.abs(eb.z - player.z) < 2.2 && Math.abs(eb.x - player.x) < 2.2) {
+          player.shieldTimer = 1.0;
+          scene.remove(eb.mesh);
+          enemyBullets.splice(i, 1);
+          continue;
+        }
+
+        if (eb.z < player.z - 20) {
+          scene.remove(eb.mesh);
+          enemyBullets.splice(i, 1);
+        }
+      }
+
+      // 古い地上ターゲットの掃除
+      for (let i = groundTargets.length - 1; i >= 0; i--) {
+        if (groundTargets[i].z < player.z - 35) {
+          scene.remove(groundTargets[i].mesh);
+          groundTargets.splice(i, 1);
+        }
+      }
+
+      // 爆発パーティクル更新
+      for (let i = explosions.length - 1; i >= 0; i--) {
+        const ex = explosions[i];
+        ex.life -= stepDt;
+        ex.mesh.position.x += ex.vx * stepDt;
+        ex.mesh.position.y += ex.vy * stepDt;
+        ex.mesh.position.z += ex.vz * stepDt;
+        ex.mesh.rotation.x += stepDt * 8;
+        ex.mesh.rotation.y += stepDt * 8;
+        ex.mesh.scale.multiplyScalar(0.95);
+        if (ex.life <= 0) {
+          scene.remove(ex.mesh);
+          explosions.splice(i, 1);
+        }
+      }
+
+      sim.screenShake = Math.max(0, sim.screenShake - dt * 1.5);
+
+      // UIテキスト反映
+      document.getElementById('hud-score').textContent = String(sim.score).padStart(6, '0');
+      document.getElementById('hud-kills').textContent = String(sim.kills);
+      document.getElementById('ai-status-text').textContent = sim.aiMessage;
+    }
+
+    function spawnEnemyBullet(ex, ey, ez) {
+      const b = new THREE.Mesh(GEO.sphere, MAT.enemyBullet);
+      b.scale.set(0.85, 0.85, 0.85);
+      b.position.set(ex, ey, ez);
+      scene.add(b);
+
+      const dx = player.x - ex;
+      const dz = (player.z + 10) - ez;
+      const len = Math.max(1, Math.hypot(dx, dz));
+      enemyBullets.push({
+        mesh: b,
+        x: ex,
+        y: ey,
+        z: ez,
+        vx: (dx / len) * 28,
+        vz: (dz / len) * 28
+      });
+    }
+
+    // =========================================================================
+    // 8. 4種類の観戦カメラワーク制御
+    // =========================================================================
+    function updateSpectatorCamera(dt) {
+      const shakeX = (Math.random() - 0.5) * sim.screenShake;
+      const shakeY = (Math.random() - 0.5) * sim.screenShake;
+
+      if (sim.camMode === 'top') {
+        // クラシック斜め俯瞰カメラ
+        camera.position.set(player.x * 0.45 + shakeX, 62 + shakeY, player.z - 24);
+        camera.lookAt(player.x * 0.4, 0, player.z + 32);
+      } else if (sim.camMode === 'chase') {
+        // 後方チェイスカメラ
+        camera.position.set(player.x * 0.82 + shakeX, player.y + 8.5 + shakeY, player.z - 19);
+        camera.lookAt(player.x * 0.7, player.y - 3, player.z + 45);
+      } else if (sim.camMode === 'low') {
+        // 地上スレスレ低空迫力カメラ
+        camera.position.set(player.x * 0.9 + shakeX, 5.2 + shakeY, player.z - 14);
+        camera.lookAt(player.x * 0.8, 12, player.z + 55);
+      } else {
+        // シネマ周回カメラ（要塞や戦闘の周囲を旋回）
+        sim.cinemaAngle += dt * 0.42;
+        const rad = 36;
+        const cx = player.x + Math.sin(sim.cinemaAngle) * rad;
+        const cz = player.z + 14 + Math.cos(sim.cinemaAngle) * rad;
+        camera.position.set(cx + shakeX, 26 + Math.sin(sim.cinemaAngle * 1.5) * 8 + shakeY, cz);
+        camera.lookAt(player.x, 8, player.z + 22);
+      }
+    }
+
+    // =========================================================================
+    // 9. 2D 戦術レーダー＆ロックオンHUD描画
+    // =========================================================================
+    function drawTacticalHUD() {
+      if (!hudCtx || !hudCanvas) return;
+      const w = hudCanvas.width;
+      const h = hudCanvas.height;
+      hudCtx.clearRect(0, 0, w, h);
+
+      // 画面四隅のSF観戦モニターフレーム線
+      hudCtx.strokeStyle = 'rgba(56, 189, 248, 0.28)';
+      hudCtx.lineWidth = 1.5;
+      const pad = 12;
+      const len = 24;
+      // 左上
+      hudCtx.beginPath();
+      hudCtx.moveTo(pad, pad + len);
+      hudCtx.lineTo(pad, pad);
+      hudCtx.lineTo(pad + len, pad);
+      hudCtx.stroke();
+      // 右上
+      hudCtx.beginPath();
+      hudCtx.moveTo(w - pad - len, pad);
+      hudCtx.lineTo(w - pad, pad);
+      hudCtx.lineTo(w - pad, pad + len);
+      hudCtx.stroke();
+
+      // 右上レーダースコープ（PC表示時）
+      if (w >= 768) {
+        const rw = 110;
+        const rh = 130;
+        const rx = w - rw - 18;
+        const ry = 76;
+
+        hudCtx.fillStyle = 'rgba(2, 6, 23, 0.72)';
+        hudCtx.strokeStyle = 'rgba(16, 185, 129, 0.45)';
+        hudCtx.lineWidth = 1.5;
+        hudCtx.beginPath();
+        hudCtx.roundRect(rx, ry, rw, rh, 12);
+        hudCtx.fill();
+        hudCtx.stroke();
+
+        // 自機ドット
+        const px = rx + rw * 0.5 + (player.x / FIELD_HALF_W) * (rw * 0.4);
+        const py = ry + rh - 18;
+        hudCtx.fillStyle = '#38bdf8';
+        hudCtx.beginPath();
+        hudCtx.arc(px, py, 3.5, 0, Math.PI * 2);
+        hudCtx.fill();
+
+        // 地上ターゲット（黄）＆空中敵（赤）をプロット
+        for (const gt of groundTargets) {
+          if (!gt.alive) continue;
+          const dz = gt.z - player.z;
+          if (dz > -10 && dz < 140) {
+            const gx = rx + rw * 0.5 + (gt.x / FIELD_HALF_W) * (rw * 0.4);
+            const gy = py - (dz / 140) * (rh - 30);
+            hudCtx.fillStyle = '#fbbf24';
+            hudCtx.fillRect(gx - 2, gy - 2, 4, 4);
+          }
+        }
+        for (const e of airEnemies) {
+          const dz = e.z - player.z;
+          if (dz > -10 && dz < 140) {
+            const ex = rx + rw * 0.5 + (e.x / FIELD_HALF_W) * (rw * 0.4);
+            const ey = py - (dz / 140) * (rh - 30);
+            hudCtx.fillStyle = e.type === 'bacura' ? '#94a3b8' : '#f43f5e';
+            hudCtx.beginPath();
+            hudCtx.arc(ex, ey, e.type === 'fortress' ? 5 : 2.5, 0, Math.PI * 2);
+            hudCtx.fill();
+          }
+        }
+      }
+    }
+
+    // =========================================================================
+    // 10. Tone.js レトロSFサウンド＆UIイベント
+    // =========================================================================
+    let zapperSynth, boomNoise;
+    async function initSound() {
+      if (zapperSynth) return;
+      await Tone.start();
+      zapperSynth = new Tone.Synth({
+        oscillator: { type: 'square' },
+        envelope: { attack: 0.005, decay: 0.08, sustain: 0, release: 0.05 }
+      }).toDestination();
+      zapperSynth.volume.value = -16;
+
+      boomNoise = new Tone.NoiseSynth({
+        noise: { type: 'brown' },
+        envelope: { attack: 0.01, decay: 0.25, sustain: 0, release: 0.1 }
+      }).toDestination();
+      boomNoise.volume.value = -12;
+    }
+
+    function playTone(kind) {
+      if (!sim.soundOn || !zapperSynth) return;
+      try {
+        if (kind === 'zapper') {
+          zapperSynth.triggerAttackRelease('C6', '32n');
+        } else if (kind === 'blaster') {
+          zapperSynth.triggerAttackRelease('G3', '16n');
+        } else if (kind === 'boom') {
+          boomNoise.triggerAttackRelease('8n');
+        } else if (kind === 'alert') {
+          zapperSynth.triggerAttackRelease('A4', '8n');
+        }
+      } catch (e) {}
+    }
+
+    function applyTimeTheme() {
+      const th = TIME_THEMES[sim.timeThemeIndex];
+      scene.background.setHex(th.sky);
+      scene.fog.color.setHex(th.fog);
+      sunLight.color.setHex(th.sunColor);
+      sunLight.intensity = th.sunInt;
+      hemiLight.color.setHex(th.hemiSky);
+      hemiLight.groundColor.setHex(th.hemiGround);
+      hemiLight.intensity = th.hemiInt;
+      document.getElementById('btn-time').textContent = th.name;
+    }
+
+    function setupEvents() {
+      // カメラ切替ボタン
+      document.querySelectorAll('.cam-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          sim.camMode = btn.dataset.cam;
+          document.querySelectorAll('.cam-btn').forEach((b) => {
+            const active = b.dataset.cam === sim.camMode;
+            b.className = active
+              ? 'cam-btn px-3 py-1.5 rounded-xl text-xs font-bold bg-cyan-500 text-slate-950 shadow transition cursor-pointer'
+              : 'cam-btn px-3 py-1.5 rounded-xl text-xs font-bold text-slate-300 hover:text-white hover:bg-white/10 transition cursor-pointer';
+          });
+        });
+      });
+
+      // 時間帯切替
+      document.getElementById('btn-time').addEventListener('click', () => {
+        sim.timeThemeIndex = (sim.timeThemeIndex + 1) % TIME_THEMES.length;
+        applyTimeTheme();
+      });
+
+      // 観戦スピード切替
+      const speeds = [1.0, 1.5, 2.0];
+      let sIdx = 0;
+      document.getElementById('btn-speed').addEventListener('click', (e) => {
+        sIdx = (sIdx + 1) % speeds.length;
+        sim.timeScale = speeds[sIdx];
+        e.target.textContent = `${sim.timeScale.toFixed(1)}x`;
+      });
+
+      // サウンド切替
+      document.getElementById('btn-sound').addEventListener('click', async (e) => {
+        sim.soundOn = !sim.soundOn;
+        e.target.textContent = sim.soundOn ? 'SOUND: ON' : 'SOUND: OFF';
+        if (sim.soundOn) await initSound();
+      });
+
+      // 一斉支援爆撃＆浮遊要塞呼び出し
+      document.getElementById('btn-airstrike').addEventListener('click', triggerMassiveAirstrike);
+      document.getElementById('btn-spawn-fortress').addEventListener('click', spawnFloatingFortress);
+
+      // 画面クリック／タップで任意地点へピンポイント支援爆撃
+      const threeEl = document.getElementById('three-container');
+      threeEl.addEventListener('pointerdown', (e) => {
+        const rect = threeEl.getBoundingClientRect();
+        const ndc = new THREE.Vector2(
+          ((e.clientX - rect.left) / rect.width) * 2 - 1,
+          -((e.clientY - rect.top) / rect.height) * 2 + 1
+        );
+        raycaster.setFromCamera(ndc, camera);
+        const hitPoint = new THREE.Vector3();
+        if (raycaster.ray.intersectPlane(groundPlaneMath, hitPoint)) {
+          const clampedX = Math.max(-FIELD_HALF_W, Math.min(FIELD_HALF_W, hitPoint.x));
+          const clampedZ = Math.max(player.z + 8, Math.min(player.z + 150, hitPoint.z));
+          fireBlaster(clampedX, clampedZ);
+          sim.aiMessage = 'SPECTATOR SUPPORT：指定座標へピンポイント爆撃要請！';
+        }
+      });
+    }
+
+    function handleResize() {
+      const container = document.getElementById('three-container');
+      if (camera && renderer && container) {
+        camera.aspect = container.clientWidth / container.clientHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(container.clientWidth, container.clientHeight);
+      }
+      if (hudCanvas) {
+        hudCanvas.width = window.innerWidth;
+        hudCanvas.height = window.innerHeight;
+      }
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const dt = Math.min(0.05, clock.getDelta());
+
+      updateEntities(dt);
+      updateSpectatorCamera(dt);
+      renderer.render(scene, camera);
+      drawTacticalHUD();
+    }
+
+    window.onload = function () {
+      hudCanvas = document.getElementById('hud-canvas');
+      hudCtx = hudCanvas.getContext('2d');
+      handleResize();
+
+      initThree();
+      setupEvents();
+      window.addEventListener('resize', handleResize);
+
+      animate();
+    };
+  </script>
+</body>
+</html>
