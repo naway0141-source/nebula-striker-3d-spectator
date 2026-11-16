@@ -1,6 +1,6 @@
-# XEVIOUS 3D SPECTATOR
+# NEBULA STRIKER 3D SPECTATOR
 
-往年の縦スクロールシューティングを3D化した「観戦型」シューティング。Gemini が作成した単一 HTML ファイル作品です。自機は自動で戦うので、プレイヤーは観戦に専念できます（指定座標へのピンポイント爆撃要請など、観戦者ならではのサポート要素あり）。
+往年の縦スクロールシューティングの雰囲気を3D化した「観戦型」シューティング。Gemini が作成した単一 HTML ファイル作品です。自機は自動で戦うので、プレイヤーは観戦に専念できます（指定座標へのピンポイント爆撃要請など、観戦者ならではのサポート要素あり）。
 
 ## 仕組み
 
@@ -9,4 +9,6 @@
 
 ## 公開
 
-https://naway0141-source.github.io/xevious-3d-spectator/
+https://naway0141-source.github.io/nebula-striker-3d-spectator/
+
+※旧タイトル「XEVIOUS 3D SPECTATOR」から改名（2026-11-16）
